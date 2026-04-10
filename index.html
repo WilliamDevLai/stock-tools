@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣股市交易損益計算機 (擴充版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .profit { color: #eb0000; } /* 台灣習慣：紅盈 */
+        .loss { color: #008f00; }   /* 台灣習慣：綠虧 */
+        .card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .toggle-btn-active {
+            background-color: #2563eb;
+            color: white;
+        }
+        .toggle-btn-inactive {
+            background-color: white;
+            color: #374151;
+        }
+        .btn-expand {
+            background-color: #f9fafb;
+            transition: all 0.2s;
+        }
+        .btn-expand:hover {
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-5xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">台灣股市交易損益計算機</h1>
+            <p class="text-gray-500 mt-2">支援雙向交易、當沖稅率、以及動態 10% 漲跌幅試算</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 輸入設定區 -->
+            <div class="lg:col-span-1 space-y-4">
+                <div class="card p-6 border-t-4 border-blue-600">
+                    <h2 class="text-lg font-semibold mb-4 border-b pb-2 text-blue-800">交易參數</h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">交易方向</label>
+                            <div class="mt-1 flex rounded-md shadow-sm">
+                                <button id="dirLong" onclick="setDirection('long')" class="flex-1 py-2 text-sm font-medium rounded-l-md border border-gray-300 toggle-btn-active">
+                                    看多 (買入)
+                                </button>
+                                <button id="dirShort" onclick="setDirection('short')" class="flex-1 py-2 text-sm font-medium rounded-r-md border border-gray-300 toggle-btn-inactive">
+                                    看空 (賣出)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">交易性質</label>
+                            <div class="mt-1 flex rounded-md shadow-sm">
+                                <button id="typeNormal" onclick="setTradeType('normal')" class="flex-1 py-2 text-sm font-medium rounded-l-md border border-gray-300 toggle-btn-active">
+                                    一般 (0.3%)
+                                </button>
+                                <button id="typeDay" onclick="setTradeType('day')" class="flex-1 py-2 text-sm font-medium rounded-r-md border border-gray-300 toggle-btn-inactive">
+                                    當沖 (0.15%)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label id="priceLabel" class="block text-sm font-medium text-gray-700">起始價格</label>
+                                <input type="number" id="basePrice" step="0.01" value="100" oninput="resetRange(); calculate();" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">股數</label>
+                                <input type="number" id="shares" value="1000" oninput="calculate()" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">手續費折數 (例如 2.8)</label>
+                            <input type="number" id="discount" step="0.1" value="2.8" oninput="calculate()" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 成本摘要 -->
+                <div class="card p-6 bg-slate-50 border border-slate-200">
+                    <h2 class="text-lg font-semibold mb-4 border-b pb-2 text-slate-800">交易成本摘要</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">成交金額</span>
+                            <span id="sumBase" class="font-medium"></span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">初始手續費</span>
+                            <span id="sumFee" class="font-medium"></span>
+                        </div>
+                        <div id="initialTaxRow" class="flex justify-between hidden">
+                            <span class="text-gray-500">交易稅 (賣出時繳納)</span>
+                            <span id="sumTax" class="font-medium"></span>
+                        </div>
+                        <hr>
+                        <div class="flex justify-between text-base">
+                            <span id="sumTotalLabel" class="font-bold text-gray-700">預估支出</span>
+                            <span id="sumTotal" class="font-bold text-blue-600"></span>
+                        </div>
+                        <div class="mt-4 p-3 bg-white border border-yellow-200 rounded-lg text-center">
+                            <span class="text-xs text-yellow-800 block mb-1" id="beLabel">保本價 (約)</span>
+                            <span id="breakEvenPrice" class="text-xl font-black text-yellow-600"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 損益表格區 -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="card p-6 flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2">
+                        <h2 class="text-lg font-semibold text-gray-800">
+                            預期損益試算 <span class="text-sm font-normal text-gray-400">(最高限制於 $\pm 10\%$)</span>
+                        </h2>
+                        <button onclick="resetRange()" class="text-xs text-blue-600 hover:underline">重置範圍</button>
+                    </div>
+
+                    <div class="flex-1 overflow-hidden flex flex-col">
+                        <!-- 向上擴展按鈕 -->
+                        <button onclick="expand('up')" id="btnExpandUp" class="w-full py-2 text-xs font-bold text-gray-500 btn-expand border-b border-gray-100 rounded-t-lg">
+                            ▲ 顯示更多 (向上)
+                        </button>
+
+                        <div class="overflow-y-auto max-h-[600px]">
+                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th id="tablePriceHead" class="px-4 py-3 text-left font-bold text-gray-600">價格</th>
+                                        <th class="px-4 py-3 text-left font-bold text-gray-600">總稅費</th>
+                                        <th class="px-4 py-3 text-right font-bold text-gray-600">預估損益</th>
+                                        <th class="px-4 py-3 text-right font-bold text-gray-600">報酬率</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="resultTableBody" class="divide-y divide-gray-100">
+                                    <!-- JS 動態產出 -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 向下擴展按鈕 -->
+                        <button onclick="expand('down')" id="btnExpandDown" class="w-full py-2 text-xs font-bold text-gray-500 btn-expand border-t border-gray-100 rounded-b-lg">
+                            ▼ 顯示更多 (向下)
+                        </button>
+                    </div>
+
+                    <div class="mt-4 text-xs text-gray-400 bg-gray-50 p-3 rounded-lg">
+                        * 漲跌幅限制以起始價格之 10% 計算，實際市場以平盤價(昨收)為準。<br>
+                        * 損益已扣除雙邊手續費與單邊交易稅。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTradeType = 'normal';
+        let currentDirection = 'long';
+        let visibleUpTicks = 5;
+        let visibleDownTicks = 5;
+
+        function setTradeType(type) {
+            currentTradeType = type;
+            document.getElementById('typeNormal').className = `flex-1 py-2 text-sm font-medium rounded-l-md border border-gray-300 ${type === 'normal' ? 'toggle-btn-active' : 'toggle-btn-inactive'}`;
+            document.getElementById('typeDay').className = `flex-1 py-2 text-sm font-medium rounded-r-md border border-gray-300 ${type === 'day' ? 'toggle-btn-active' : 'toggle-btn-inactive'}`;
+            calculate();
+        }
+
+        function setDirection(dir) {
+            currentDirection = dir;
+            document.getElementById('dirLong').className = `flex-1 py-2 text-sm font-medium rounded-l-md border border-gray-300 ${dir === 'long' ? 'toggle-btn-active' : 'toggle-btn-inactive'}`;
+            document.getElementById('dirShort').className = `flex-1 py-2 text-sm font-medium rounded-r-md border border-gray-300 ${dir === 'short' ? 'toggle-btn-active' : 'toggle-btn-inactive'}`;
+            
+            document.getElementById('priceLabel').innerText = dir === 'long' ? '買入價格' : '賣出價格';
+            document.getElementById('tablePriceHead').innerText = dir === 'long' ? '賣出平倉價' : '買入回補價';
+            document.getElementById('beLabel').innerText = dir === 'long' ? '保本價 (賣出價)' : '保本價 (回補價)';
+            document.getElementById('initialTaxRow').classList.toggle('hidden', dir === 'long');
+            
+            calculate();
+        }
+
+        function resetRange() {
+            visibleUpTicks = 5;
+            visibleDownTicks = 5;
+            calculate();
+        }
+
+        function expand(dir) {
+            if (dir === 'up') visibleUpTicks += 5;
+            else visibleDownTicks += 5;
+            calculate();
+        }
+
+        function getTickSize(price) {
+            if (price < 10) return 0.01;
+            if (price < 50) return 0.05;
+            if (price < 100) return 0.1;
+            if (price < 500) return 0.5;
+            if (price < 1000) return 1.0;
+            return 5.0;
+        }
+
+        function getNextTick(price, steps) {
+            let currentPrice = parseFloat(price);
+            if (steps > 0) {
+                for (let i = 0; i < steps; i++) {
+                    currentPrice += getTickSize(currentPrice);
+                }
+            } else {
+                for (let i = 0; i < Math.abs(steps); i++) {
+                    let ts = getTickSize(currentPrice - 0.0000001); 
+                    currentPrice -= ts;
+                }
+            }
+            return parseFloat(currentPrice.toFixed(2));
+        }
+
+        function calculate() {
+            const basePrice = parseFloat(document.getElementById('basePrice').value) || 0;
+            const shares = parseInt(document.getElementById('shares').value) || 0;
+            const discount = parseFloat(document.getElementById('discount').value) || 2.8;
+            
+            if (basePrice <= 0 || shares <= 0) return;
+
+            const upperLimit = parseFloat((basePrice * 1.1).toFixed(2));
+            const lowerLimit = parseFloat((basePrice * 0.9).toFixed(2));
+            
+            const feeRate = 0.001425 * (discount / 10);
+            const taxRate = currentTradeType === 'normal' ? 0.003 : 0.0015;
+
+            const baseAmount = basePrice * shares;
+            let initialFee = Math.floor(baseAmount * feeRate);
+            if (initialFee < 20 && initialFee > 0) initialFee = 20;
+
+            let initialTax = 0;
+            if (currentDirection === 'short') {
+                initialTax = Math.floor(baseAmount * taxRate);
+                document.getElementById('sumTax').innerText = `NT$ ${initialTax.toLocaleString()}`;
+            }
+
+            document.getElementById('sumBase').innerText = `NT$ ${baseAmount.toLocaleString()}`;
+            document.getElementById('sumFee').innerText = `NT$ ${initialFee.toLocaleString()}`;
+            document.getElementById('sumTotal').innerText = `NT$ ${(baseAmount + initialFee + initialTax).toLocaleString()}`;
+            document.getElementById('sumTotalLabel').innerText = currentDirection === 'long' ? '預計支出' : '預估應收';
+
+            const tableBody = document.getElementById('resultTableBody');
+            tableBody.innerHTML = '';
+
+            // 生成價格清單
+            const priceList = [];
+            
+            // 向上掃描直到 Limit 或達上限數量
+            for (let i = visibleUpTicks; i >= 1; i--) {
+                let p = getNextTick(basePrice, i);
+                if (p <= upperLimit) priceList.push(p);
+            }
+            
+            priceList.push(basePrice); // 基準價
+            
+            // 向下掃描
+            for (let i = 1; i <= visibleDownTicks; i++) {
+                let p = getNextTick(basePrice, -i);
+                if (p >= lowerLimit) priceList.push(p);
+            }
+
+            // 檢查按鈕狀態 (如果已經到頂/到底，隱藏按鈕)
+            document.getElementById('btnExpandUp').style.display = getNextTick(basePrice, visibleUpTicks) >= upperLimit ? 'none' : 'block';
+            document.getElementById('btnExpandDown').style.display = getNextTick(basePrice, -visibleDownTicks) <= lowerLimit ? 'none' : 'block';
+
+            let bestBE = 0;
+
+            priceList.forEach(targetPrice => {
+                const targetAmount = targetPrice * shares;
+                let targetFee = Math.floor(targetAmount * feeRate);
+                if (targetFee < 20 && targetFee > 0) targetFee = 20;
+
+                let buyPrice, sellPrice, buyFee, sellFee, tax;
+                if (currentDirection === 'long') {
+                    buyPrice = basePrice; sellPrice = targetPrice;
+                    buyFee = initialFee; sellFee = targetFee;
+                    tax = Math.floor(targetAmount * taxRate);
+                } else {
+                    buyPrice = targetPrice; sellPrice = basePrice;
+                    buyFee = targetFee; sellFee = initialFee;
+                    tax = initialTax;
+                }
+
+                const totalCost = (buyPrice * shares) + buyFee + sellFee + tax;
+                const totalRevenue = (sellPrice * shares);
+                const netProfit = totalRevenue - totalCost;
+                
+                const roi = ((netProfit / (buyPrice * shares + buyFee)) * 100).toFixed(2);
+                const isLoss = netProfit < 0;
+                const isEven = netProfit === 0;
+                const priceClass = isEven ? 'text-gray-800' : (isLoss ? 'loss' : 'profit');
+                const sign = netProfit > 0 ? '+' : '';
+
+                if (currentDirection === 'long') {
+                    if (netProfit >= 0 && (bestBE === 0 || targetPrice < bestBE)) bestBE = targetPrice;
+                } else {
+                    if (netProfit >= 0 && (bestBE === 0 || targetPrice > bestBE)) bestBE = targetPrice;
+                }
+
+                const row = document.createElement('tr');
+                if (targetPrice === basePrice) row.className = 'bg-blue-50 font-bold';
+                
+                row.innerHTML = `
+                    <td class="px-4 py-3">${targetPrice.toFixed(2)}${targetPrice === upperLimit ? ' <span class="text-[10px] bg-red-100 text-red-600 px-1">漲停</span>' : ''}${targetPrice === lowerLimit ? ' <span class="text-[10px] bg-green-100 text-green-600 px-1">跌停</span>' : ''}</td>
+                    <td class="px-4 py-3 text-gray-400">${Math.floor(buyFee + sellFee + tax).toLocaleString()}</td>
+                    <td class="px-4 py-3 text-right font-bold ${priceClass}">${sign}${Math.floor(netProfit).toLocaleString()}</td>
+                    <td class="px-4 py-3 text-right font-bold ${priceClass}">${sign}${roi}%</td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            document.getElementById('breakEvenPrice').innerText = bestBE > 0 ? `NT$ ${bestBE.toFixed(2)}` : '--';
+        }
+
+        window.onload = calculate;
+    </script>
+</body>
+</html>
